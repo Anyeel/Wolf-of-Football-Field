@@ -141,8 +141,8 @@ The frontend cart **recalculates your projected balance in real time**. If you g
 ### 1. Clone & Setup Backend
 
 ```bash
-git clone https://github.com/your-username/wolf-of-football-field.git
-cd wolf-of-football-field/backend
+git clone https://github.com/Anyeel/Wolf-of-Football-Field.git
+cd Wolf-of-Football-Field/backend
 
 # Create virtual environment
 python -m venv .venv
