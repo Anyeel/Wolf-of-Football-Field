@@ -1,0 +1,59 @@
+# ==========================
+# Python
+# ==========================
+__pycache__/
+*.py[cod]
+*.pyo
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Environment variables (secrets!)
+backend/.env
+
+# SQLite database (local data, regenerated on startup)
+*.db
+*.sqlite3
+
+# ==========================
+# Node.js / Angular
+# ==========================
+node_modules/
+frontend/node_modules/
+frontend/.angular/
+frontend/dist/
+
+# ==========================
+# Tooling caches & local settings
+# ==========================
+.pytest_cache/
+.claude/
+
+# ==========================
+# IDE / Editor
+# ==========================
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# ==========================
+# Debug / Scratch files
+# ==========================
+backend/*.html
+!backend/.env.example
+
+# ==========================
+# OS
+# ==========================
+*.log
+*.tmp

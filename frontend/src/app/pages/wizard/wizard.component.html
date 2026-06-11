@@ -1,0 +1,285 @@
+<div class="wizard-shell">
+
+  <!-- ================= HEADER & STEPPER ================= -->
+  <header class="wizard-header">
+    <div class="brand">
+      <span class="brand-icon">🐺</span>
+      <div>
+        <h1 class="brand-title">Wolf of <span class="text-gradient">Football Field</span></h1>
+        <p class="brand-sub">Tu director deportivo con IA para Mister Fantasy</p>
+      </div>
+    </div>
+
+    <nav class="stepper" *ngIf="step <= 5">
+      <div class="stepper-track">
+        <div class="stepper-fill" [style.width.%]="stepperProgress"></div>
+      </div>
+      <div *ngFor="let label of stepLabels; let i = index"
+           class="step"
+           [class.active]="step === i + 1"
+           [class.done]="step > i + 1">
+        <div class="step-dot">
+          <svg *ngIf="step > i + 1" width="14" height="14" viewBox="0 0 24 24" fill="none"
+               stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>
+          <span *ngIf="step <= i + 1">{{ i + 1 }}</span>
+        </div>
+        <span class="step-label">{{ label }}</span>
+      </div>
+    </nav>
+  </header>
+
+  <!-- ================= STICKY BALANCE BAR ================= -->
+  <div class="balance-bar glass-panel" *ngIf="step > 1 && step <= 5 && data">
+    <div>
+      <div class="balance-label">Saldo restante proyectado</div>
+      <div class="balance-amount" [class.negative]="projectedBalance < 0">
+        {{ projectedBalance | number }} €
+      </div>
+    </div>
+    <div class="balance-detail">
+      <span class="balance-chip income">+{{ totalSalesIncome | number }} € ventas</span>
+      <span class="balance-chip spend">−{{ totalSpend | number }} € pujas</span>
+    </div>
+    <div class="balance-warning" *ngIf="projectedBalance < 0">
+      ⚠️ ¡Saldo negativo! Cancela fichajes.
+    </div>
+  </div>
+
+  <!-- ================= STEP 1: INIT ================= -->
+  <section *ngIf="step === 1" class="step-panel hero animate-fade-in">
+    <ng-container *ngIf="!loading">
+      <h2 class="hero-title">Prepara tu jornada en un clic</h2>
+      <p class="hero-sub">
+        El asistente descarga el mercado, audita tu plantilla y busca clausulazos
+        a tus rivales. Tú decides, la IA revisa, y todo se ejecuta de golpe.
+      </p>
+
+      <div class="feature-grid">
+        <div class="feature-card glass-panel">
+          <span class="feature-icon">📈</span>
+          <h3>Mercado inteligente</h3>
+          <p>Ranking de fichajes por rendimiento y racha, con puja sugerida.</p>
+        </div>
+        <div class="feature-card glass-panel">
+          <span class="feature-icon">🩺</span>
+          <h3>Revisión médica IA</h3>
+          <p>Noticias de lesiones y rotaciones analizadas en una sola pasada.</p>
+        </div>
+        <div class="feature-card glass-panel">
+          <span class="feature-icon">🛡️</span>
+          <h3>Anti-clausulazos</h3>
+          <p>Detecta tus chollos y los blinda con precios disuasorios.</p>
+        </div>
+      </div>
+
+      <button class="btn btn-primary btn-hero" (click)="initWizard()">
+        Iniciar análisis
+      </button>
+      <p class="error-banner" *ngIf="executionMessage">{{ executionMessage }}</p>
+    </ng-container>
+
+    <div *ngIf="loading" class="loading-box">
+      <div class="progress-container">
+        <div class="progress-bar"></div>
+      </div>
+      <div class="loading-meme">{{ currentMeme }}</div>
+    </div>
+  </section>
+
+  <!-- ================= STEP 2: MARKET ================= -->
+  <section *ngIf="step === 2" class="step-panel animate-fade-in">
+    <h2 class="panel-title">Mercado y clausulazos</h2>
+    <p class="panel-sub">Marca las pujas que quieras lanzar. La IA ya ha descartado a los lesionados.</p>
+
+    <div *ngIf="bids.length === 0" class="empty-state glass-panel">
+      No hay jugadores atractivos hoy. El lobo también descansa.
+    </div>
+
+    <div class="bid-list">
+      <article *ngFor="let bid of bids" class="bid-card glass-panel" [class.discarded]="!bid.selected">
+        <label class="bid-check">
+          <input type="checkbox" [(ngModel)]="bid.selected" (change)="recalculateBalance()" />
+        </label>
+
+        <div class="avatar" [attr.data-type]="bid.type">{{ initials(bid.player_name) }}</div>
+
+        <div class="bid-info">
+          <div class="bid-name">
+            {{ bid.player_name }}
+            <span class="chip" [class.chip-steal]="bid.type === 'steal'">
+              {{ bid.type === 'steal' ? '🎯 Clausulazo' : 'Agente libre' }}
+            </span>
+          </div>
+          <div class="bid-meta">
+            Valor {{ bid.value | number }} € · Score {{ bid.score | number: '1.0-0' }}
+            <ng-container *ngIf="bid.type === 'steal'"> · Cláusula est. {{ bid.clause | number }} €</ng-container>
+          </div>
+          <div class="bid-ai-warning" *ngIf="bid.ai_discard_reason">
+            ⚠️ Descartado por IA: {{ bid.ai_discard_reason }}
+          </div>
+        </div>
+
+        <div class="bid-controls" *ngIf="bid.selected">
+          <button class="btn-price" (click)="adjustBid(bid, -100000)">−100k</button>
+          <input class="bid-input" type="number" [(ngModel)]="bid.suggested_bid" (change)="recalculateBalance()" />
+          <button class="btn-price" (click)="adjustBid(bid, 100000)">+100k</button>
+        </div>
+        <div class="bid-skip" *ngIf="!bid.selected">Descartado</div>
+      </article>
+    </div>
+  </section>
+
+  <!-- ================= STEP 3: LINEUP ================= -->
+  <section *ngIf="step === 3" class="step-panel animate-fade-in">
+    <h2 class="panel-title">Tu once titular <span class="formation-badge">{{ lineupFormation }}</span></h2>
+    <p class="panel-sub">La IA ha alineado a tus mejores jugadores disponibles y ha elegido capitán.</p>
+
+    <div class="pitch">
+      <div class="pitch-circle"></div>
+      <div class="pitch-halfway"></div>
+      <div class="pitch-box top"></div>
+      <div class="pitch-box bottom"></div>
+
+      <div class="pitch-row" *ngFor="let pos of ['FW', 'MF', 'DF', 'GK']">
+        <div *ngFor="let p of getLineupPlayersByPos($any(pos))" class="player-token">
+          <div class="player-shirt" [attr.data-pos]="pos">
+            {{ initials(p.name) }}
+            <span class="captain-badge" *ngIf="p.isCaptain" title="Capitán">C</span>
+            <span class="status-dot" *ngIf="p.status !== 'ok'" [title]="p.status"></span>
+          </div>
+          <div class="player-name">{{ p.name }}</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= STEP 4: SALES & PROTECTIONS ================= -->
+  <section *ngIf="step === 4" class="step-panel animate-fade-in">
+    <h2 class="panel-title">Ventas, renovaciones y protecciones</h2>
+    <p class="panel-sub">
+      Los descartes salen al mercado. Si ya estaban a la venta, su precio se renueva,
+      cancelando ofertas previas para forzar nuevas de la CPU.
+    </p>
+
+    <div class="two-cols">
+      <div>
+        <h3 class="col-title danger">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>
+          </svg>
+          Mercado (vender / renovar)
+        </h3>
+        <div *ngIf="sales.length === 0" class="empty-state glass-panel">No hay descartes.</div>
+        <div *ngFor="let sale of sales" class="list-card glass-panel sale">
+          <div class="list-card-name">{{ sale.player_name }}</div>
+          <div class="list-card-meta">Ingreso / renovación: {{ sale.suggested_price | number }} €</div>
+        </div>
+      </div>
+
+      <div>
+        <h3 class="col-title accent">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+          </svg>
+          Chollos a proteger
+        </h3>
+        <div *ngIf="protections.length === 0" class="empty-state glass-panel">No hay jugadores en peligro inminente.</div>
+        <div *ngFor="let prot of protections" class="list-card glass-panel protection">
+          <div class="list-card-name">{{ prot.player_name }}</div>
+          <div class="list-card-meta">Precio disuasorio: {{ prot.suggested_price | number }} €</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= STEP 5: SUMMARY & AI REVIEW ================= -->
+  <section *ngIf="step === 5" class="step-panel animate-fade-in">
+    <h2 class="panel-title">Resumen de la jugada</h2>
+
+    <div class="stats-grid">
+      <div class="stat-card glass-panel">
+        <div class="stat-value">{{ activeBids.length }}</div>
+        <div class="stat-label">Pujas activas</div>
+      </div>
+      <div class="stat-card glass-panel">
+        <div class="stat-value">−{{ totalSpend | number }} €</div>
+        <div class="stat-label">Inversión total</div>
+      </div>
+      <div class="stat-card glass-panel">
+        <div class="stat-value">+{{ totalSalesIncome | number }} €</div>
+        <div class="stat-label">Ingresos estimados</div>
+      </div>
+      <div class="stat-card glass-panel" [class.negative]="projectedBalance < 0">
+        <div class="stat-value">{{ projectedBalance | number }} €</div>
+        <div class="stat-label">Saldo proyectado</div>
+      </div>
+    </div>
+
+    <details class="cart-details glass-panel">
+      <summary>Ver detalle completo de la operación</summary>
+      <pre>{{ getCartSummary() }}</pre>
+    </details>
+
+    <!-- AI Review -->
+    <div class="ai-panel glass-panel">
+      <div *ngIf="!aiReview || aiReview.status === 'ERROR'" class="ai-idle">
+        <div class="ai-error" *ngIf="aiReview?.status === 'ERROR'">
+          <strong>⚠️ La IA no pudo evaluar</strong>
+          <p>{{ aiReview?.reason }}</p>
+        </div>
+        <button class="btn btn-primary" (click)="askAIReview()" [disabled]="aiLoading">
+          {{ aiLoading ? 'IA pensando...' : (aiReview?.status === 'ERROR' ? 'Reintentar evaluación' : 'Evaluar jugada con IA') }}
+        </button>
+        <div *ngIf="aiLoading" class="ai-stream">
+          <span class="cursor">▊</span> {{ aiStreamText }}
+        </div>
+      </div>
+
+      <div *ngIf="aiReview && aiReview.status !== 'ERROR'" class="ai-verdict animate-fade-in" [attr.data-status]="aiReview.status">
+        <div class="verdict-icon">
+          <svg *ngIf="aiReview.status === 'OK'" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>
+          <svg *ngIf="aiReview.status === 'SUGGESTIONS'" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+          <svg *ngIf="aiReview.status === 'BAD'" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </div>
+        <div class="verdict-body">
+          <div class="verdict-title">Veredicto: {{ aiReview.status === 'BAD' ? 'MAL' : aiReview.status }}</div>
+          <p class="verdict-reason">{{ aiReview.reason }}</p>
+        </div>
+        <button *ngIf="aiReview.status === 'BAD'" class="btn" (click)="askAIReview()" [disabled]="aiLoading">
+          Reintentar
+        </button>
+      </div>
+    </div>
+
+    <p class="error-banner" *ngIf="executionMessage">{{ executionMessage }}</p>
+  </section>
+
+  <!-- ================= STEP 6: SUCCESS ================= -->
+  <section *ngIf="step === 6" class="step-panel hero animate-fade-in">
+    <div class="success-icon">
+      <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>
+    </div>
+    <h2 class="hero-title">¡Plan ejecutado en Mister!</h2>
+    <p class="hero-sub">Pujas lanzadas, alineación confirmada y chollos protegidos. A ganar la jornada. 🐺</p>
+    <button class="btn btn-primary btn-hero" (click)="restart()">Preparar otra jornada</button>
+  </section>
+
+  <!-- ================= NAVIGATION ================= -->
+  <footer class="wizard-nav" *ngIf="step > 1 && step <= 5">
+    <button class="btn" (click)="prevStep()" [disabled]="executing">Anterior</button>
+
+    <button *ngIf="step < 5" class="btn btn-primary btn-next" (click)="nextStep()">Siguiente</button>
+
+    <div *ngIf="step === 5" class="execute-zone">
+      <button class="btn btn-primary btn-execute"
+              (click)="executeAll()"
+              [disabled]="executing || projectedBalance < 0 || !aiReview || aiReview.status === 'ERROR' || aiReview.status === 'BAD'">
+        {{ executing ? 'Ejecutando en Mister...' : 'CONFIRMAR Y EJECUTAR' }}
+      </button>
+      <div class="execute-hint" *ngIf="!aiReview || aiReview.status === 'ERROR' || aiReview.status === 'BAD'">
+        {{ aiReview?.status === 'BAD' ? 'Corrige los errores antes de ejecutar.' : 'Necesitas un veredicto de la IA antes de ejecutar.' }}
+      </div>
+    </div>
+  </footer>
+
+</div>
