@@ -11,6 +11,7 @@ Financial decisions (e.g. whether a buyout clause is worth paying) are NOT
 handled here: they are deterministic arithmetic and live in strategy.py.
 """
 
+import datetime
 import json
 import re
 
@@ -66,21 +67,21 @@ class LLMNewsChecker:
     # ------------------------------------------------------------------
 
     def _fetch_news(self, player_name: str) -> str:
-        """Returns recent news snippets for a player, or '' if none found."""
+        """Returns last-week news snippets for a player, or '' if none found.
+
+        Only the weekly window is searched: a broader monthly fallback used to
+        surface stale articles ("X se lesionó" from weeks ago, long recovered)
+        that made the LLM flag healthy players as injured.
+        """
         try:
-            # Recent news first (last week), then a broader monthly search.
             results = DDGS().text(
                 f"site:futbolfantasy.com {player_name} lesion rotacion",
                 max_results=3, timelimit="w",
             )
-            snippets = " ".join(r.get("body", "") for r in results)
-            if not snippets:
-                results = DDGS().text(
-                    f"site:futbolfantasy.com {player_name}",
-                    max_results=3, timelimit="m",
-                )
-                snippets = " ".join(r.get("body", "") for r in results)
-            return snippets
+            # Titles carry the actual headline; bodies are often nav/boilerplate.
+            return " | ".join(
+                f"{r.get('title', '')}: {r.get('body', '')}" for r in results
+            )
         except Exception as e:
             print(f"[AI] Web search failed for {player_name}: {e}")
             return ""
@@ -117,14 +118,26 @@ class LLMNewsChecker:
         news_block = "\n".join(
             f'- {name}: "{snippets[:600]}"' for name, snippets in news_by_player.items()
         )
-        prompt = f"""You are an expert analyst in La Liga and Fantasy Football (Mister Fantasy).
-Below are recent news snippets for several players, one per line:
+        today = datetime.date.today().strftime("%d %B %Y")
+        prompt = f"""You are an expert analyst in football and Fantasy Football (Mister Fantasy).
+Today is {today}. Below are news snippets from the last 7 days for several players,
+one per line (format: "title: body"):
 
 {news_block}
 
-For EACH player, decide if he is SAFE to sign (fit, expected to start) or NOT SAFE
-(injured, doubtful for the next match, or being rotated). Give a one-sentence reason
-(max 15 words) per player. Reply for every player listed, using their exact names.
+For EACH player decide if he is safe to sign. BE CONSERVATIVE — mark a player
+NOT SAFE (safe=false) ONLY if a snippet EXPLICITLY reports that THIS player is
+CURRENTLY injured, doubtful for the upcoming match, suspended, or being rotated.
+
+Mark SAFE (safe=true) when:
+- The news reports a recovery, a return to training, or a comeback.
+- The snippet is about a DIFFERENT player or is generic site text that merely
+  contains words like "lesión" or "rotación" without a specific report on him.
+- The information is vague, outdated, or you are not sure.
+
+Never invent injuries that the snippets do not state. Give a one-sentence reason
+(max 15 words) per player, quoting the snippet's claim when flagging someone.
+Reply for every player listed, using their exact names.
 """
 
         try:

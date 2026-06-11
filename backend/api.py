@@ -173,6 +173,46 @@ class MisterAPI:
             print(f"[API] Warning: could not get community info for player {player_id}: {e}")
         return {}
 
+    def get_squad_details(self, squad_players: list) -> list:
+        """Enriches squad players in place with authoritative JSON data.
+
+        The HTML player rows are unreliable for club membership (every row
+        carries a team-logo img), so this uses player-community-info, where
+        `team` is null for players who left the league. It also exposes the
+        purchase price, current listing, Mister's own injury report and any
+        received offer — data the strategy engine needs for sale decisions.
+        """
+        for p in squad_players:
+            data = self.get_player_community_info(p["id"]).get("data", {})
+            if not data:
+                continue
+
+            # Authoritative club membership: null team = left the league.
+            p["has_team"] = bool(data.get("team"))
+
+            transfer = data.get("transfer") or {}
+            p["purchase_price"] = transfer.get("price")
+
+            market = data.get("market") or {}
+            p["on_market"] = market.get("id") is not None
+            p["id_market"] = market.get("id")
+            p["ask_price"] = market.get("price")
+
+            # Mister's own injury report beats any news scraping.
+            if data.get("injury"):
+                p["status"] = "injured"
+
+            # For an owned player, the bid block carries the received offer
+            # (amount + days until it expires), if there is one.
+            bid = data.get("bid") or {}
+            if bid.get("isActive") == 1 and bid.get("amount"):
+                p["offer"] = {
+                    "amount": bid["amount"],
+                    "id_bid": bid.get("id", ""),
+                    "days": bid.get("days"),
+                }
+        return squad_players
+
     def get_community_users(self) -> list:
         """IDs and slugs of the other managers in the league."""
         html = self._get_html_raw("standings")

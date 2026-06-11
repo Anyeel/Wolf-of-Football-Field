@@ -16,7 +16,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from api import MisterAPI
-from db_orm import get_db, init_db, upsert_player
+from db_orm import get_db, get_value_drop_pct, init_db, upsert_player
 from llm_checker import LLMNewsChecker
 from strategy import StrategyEngine
 
@@ -141,33 +141,78 @@ def update_settings(settings: StrategySettings):
 # ----------------------------------------------------------------------
 
 @app.get("/api/wizard/init")
-def wizard_init():
+def wizard_init(db: Session = Depends(get_db)):
     """Step 1: download everything and compute the full matchday plan."""
     finances = mister_api.get_user_finances()
     market = mister_api.get_market()
     squad = mister_api.get_user_squad()
 
+    # Authoritative per-player data: club membership, purchase price,
+    # Mister's own injury report, current listing and received offers.
+    mister_api.get_squad_details(squad)
+
+    # Record today's values so trend analysis has history to work with.
+    for p in market + squad:
+        upsert_player(db, p)
+
     rival_players = []
     for rival in mister_api.get_community_users():
         rival_players.extend(mister_api.get_community_squad(rival["id"]))
 
-    market_suggestions = engine.get_market_suggestions(market, rival_players)
+    market_suggestions = engine.get_market_suggestions(
+        market, rival_players, squad_players=squad, finances=finances
+    )
     lineup_info = engine.optimize_lineup(squad)
     protections = engine.get_protection_suggestions(squad)
 
-    # Anything that is neither in the best 11 nor worth protecting is a sale.
     lineup_ids = set(lineup_info["slots"].values())
     protection_ids = {p["player_id"] for p in protections}
-    sales = [
-        {
-            "player_id": p["id"],
-            "player_name": p["name"],
-            "value": p.get("value", 0),
-            "suggested_price": int(p.get("value", 0) * engine.RESALE_MULTIPLIER),
-        }
-        for p in squad
-        if p["id"] not in lineup_ids and p["id"] not in protection_ids
-    ]
+
+    sales = []
+    for p in squad:
+        value = p.get("value", 0)
+
+        # Received offer: rule-based accept/keep. Starters are only sold
+        # when their value is tanking — profit doesn't justify breaking
+        # the matchday 11.
+        offer = p.get("offer")
+        if offer:
+            drop = get_value_drop_pct(db, p["id"])
+            is_tanking = drop >= engine.VALUE_DROP_SELL_THRESHOLD
+            accept, reason = engine.decide_offer(
+                offer["amount"], value, p.get("purchase_price"), drop
+            )
+            if accept and (p["id"] not in lineup_ids or is_tanking):
+                sales.append({
+                    "player_id": p["id"],
+                    "player_name": p["name"],
+                    "value": value,
+                    "suggested_price": offer["amount"],
+                    "action": "accept",
+                    "id_bid": offer.get("id_bid", ""),
+                    "reason": reason,
+                })
+                continue  # Don't also re-list him (that would void the offer)
+
+        # No real-life club: liquidate at market value (the listing minimum).
+        if not p.get("has_team", True):
+            sales.append({
+                "player_id": p["id"],
+                "player_name": p["name"],
+                "value": value,
+                "suggested_price": value,
+                "reason": "Sin equipo real — no puntúa, venta inmediata.",
+            })
+            continue
+
+        # Anything neither in the best 11 nor worth protecting goes on sale.
+        if p["id"] not in lineup_ids and p["id"] not in protection_ids:
+            sales.append({
+                "player_id": p["id"],
+                "player_name": p["name"],
+                "value": value,
+                "suggested_price": int(value * engine.RESALE_MULTIPLIER),
+            })
 
     return {
         "finances": finances,

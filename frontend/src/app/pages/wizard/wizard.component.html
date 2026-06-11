@@ -170,9 +170,15 @@
           Mercado (vender / renovar)
         </h3>
         <div *ngIf="sales.length === 0" class="empty-state glass-panel">No hay descartes.</div>
-        <div *ngFor="let sale of sales" class="list-card glass-panel sale">
-          <div class="list-card-name">{{ sale.player_name }}</div>
-          <div class="list-card-meta">Ingreso / renovación: {{ sale.suggested_price | number }} €</div>
+        <div *ngFor="let sale of sales" class="list-card glass-panel sale" [class.offer]="sale.action === 'accept'">
+          <div class="list-card-name">
+            {{ sale.player_name }}
+            <span class="chip chip-offer" *ngIf="sale.action === 'accept'">💰 Oferta recibida</span>
+          </div>
+          <div class="list-card-meta">
+            {{ sale.action === 'accept' ? 'Aceptar oferta' : 'Ingreso / renovación' }}: {{ sale.suggested_price | number }} €
+          </div>
+          <div class="list-card-reason" *ngIf="sale.reason">{{ sale.reason }}</div>
         </div>
       </div>
 

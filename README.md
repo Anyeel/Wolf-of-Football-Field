@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <img src="docs/wolf_hero.jpg" width="500" style="border-radius: 12px;" />
+  <img src="docs/wolf_spain.png" width="500" style="border-radius: 12px;" />
 </p>
 
 <p align="center">
@@ -95,26 +95,26 @@ The frontend cart **recalculates your projected balance in real time**. If you g
 
 ```
 ┌──────────────────────────────────────────────────────────┐
-│                    FRONTEND (Angular 18)                  │
+│                    FRONTEND (Angular 18)                 │
 │                                                          │
 │   Wizard UI ──► Shopping Cart ──► SSE Stream Reader      │
-│       │              │                    │               │
-│       ▼              ▼                    ▼               │
+│       │              │                    │              │
+│       ▼              ▼                    ▼              │
 │   [Init] ──► [Market] ──► [Lineup] ──► [Sales] ──► [AI]  │
 └────────────────────────┬─────────────────────────────────┘
                          │ HTTP / SSE
 ┌────────────────────────▼─────────────────────────────────┐
-│                   BACKEND (FastAPI)                       │
+│                   BACKEND (FastAPI)                      │
 │                                                          │
 │   server.py ──── strategy.py ──── llm_checker.py         │
 │   (endpoints)    (rule engine,    (news scraping,        │
 │                   all the math)    batched verdicts)     │
-│                                        │                  │
-│   api.py                          llm_client.py           │
-│   (Mister scraper/client)         (provider routing)      │
-│       │                            │            │         │
-│       ▼                            ▼            ▼         │
-│   [Mister Fantasy API]      [Ollama local] [Gemini REST]  │
+│                                        │                 │
+│   api.py                          llm_client.py          │
+│   (Mister scraper/client)         (provider routing)     │
+│       │                            │            │        │
+│       ▼                            ▼            ▼        │
+│   [Mister Fantasy API]      [Ollama local] [Gemini REST] │
 └──────────────────────────────────────────────────────────┘
 ```
 
@@ -268,7 +268,7 @@ wolf-of-football-field/
 │       ├── services/            # Typed HTTP service
 │       └── pages/wizard/        # Wizard UI (ts / html / css)
 ├── docs/
-│   └── wolf_hero.jpg      # Project hero image
+│   └── wolf_spain.png      # Project hero image
 ├── LICENSE
 ├── CHANGELOG.md
 └── README.md
@@ -291,5 +291,5 @@ Released under the [MIT License](LICENSE).
 </p>
 
 <p align="center">
-  <sub>Built with 🐺 energy and a lot of ⚽ by <a href="https://github.com/your-username">your-username</a></sub>
+  <sub>Built with 🐺 energy and a lot of ⚽ by <a href="https://github.com/Anyeel">Ángel Millán</a></sub>
 </p>

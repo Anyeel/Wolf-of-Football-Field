@@ -599,7 +599,20 @@
 }
 
 .list-card.sale       { border-left: 3px solid var(--danger); }
+.list-card.sale.offer { border-left: 3px solid var(--warning); }
 .list-card.protection { border-left: 3px solid var(--accent); }
+
+.chip-offer {
+  background: rgba(245, 158, 11, 0.15);
+  color: var(--warning);
+}
+
+.list-card-reason {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  font-style: italic;
+  margin-top: 0.25rem;
+}
 
 .list-card-name { font-weight: 600; }
 

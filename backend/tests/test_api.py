@@ -59,6 +59,32 @@ def test_finances_fail_safe_returns_zero(api):
     assert finances == {"balance": 0, "max_bid": 0}
 
 
+def test_get_squad_details_enriches_from_json(api):
+    """Club membership, purchase price, injuries and offers come from the
+    player-community-info JSON, which is authoritative (the HTML rows are not)."""
+    squad = [
+        {'id': 1, 'name': 'Left League', 'status': 'ok'},
+        {'id': 2, 'name': 'Listed With Offer', 'status': 'ok'},
+    ]
+    infos = {
+        1: {"data": {"team": None, "transfer": {"price": None}, "injury": [],
+                     "market": {"id": None, "price": 0}, "bid": {"isActive": 0}}},
+        2: {"data": {"team": {"id": 9, "name": "Qatar"},
+                     "transfer": {"price": 1_000_000}, "injury": ["knee"],
+                     "market": {"id": 77, "price": 2_000_000},
+                     "bid": {"isActive": 1, "amount": 1_500_000, "days": 2}}},
+    }
+    with patch.object(api, 'get_player_community_info', side_effect=lambda pid: infos[pid]):
+        api.get_squad_details(squad)
+
+    assert squad[0]['has_team'] is False           # Null team = left the league
+    assert squad[1]['has_team'] is True
+    assert squad[1]['purchase_price'] == 1_000_000
+    assert squad[1]['status'] == 'injured'         # Mister's own injury report
+    assert squad[1]['on_market'] is True
+    assert squad[1]['offer']['amount'] == 1_500_000
+
+
 def test_missing_env_vars():
     with patch.dict(os.environ, clear=True):
         from api import MisterAPI

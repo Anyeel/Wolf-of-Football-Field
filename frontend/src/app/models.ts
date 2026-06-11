@@ -54,6 +54,8 @@ export interface SaleItem {
   action?: string;
   id_bid?: string;
   id_market?: string;
+  /** Why the engine decided this (e.g. offer accepted, no real-life club). */
+  reason?: string;
 }
 
 export interface ProtectionItem {

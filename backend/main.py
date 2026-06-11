@@ -6,7 +6,7 @@ automation once you trust the engine's thresholds.
 """
 
 from api import MisterAPI
-from db_orm import get_db, init_db, upsert_player
+from db_orm import get_db, get_value_drop_pct, init_db, upsert_player
 from llm_checker import LLMNewsChecker
 from strategy import StrategyEngine
 
@@ -28,10 +28,30 @@ def review_squad_health(checker: LLMNewsChecker, squad_players: list) -> None:
             player["status"] = "injured"
 
 
+def collect_received_offers(db, squad_players: list) -> list:
+    """Builds the offers list for the engine from the enriched squad data."""
+    offers = []
+    for p in squad_players:
+        offer = p.get("offer")
+        if not offer:
+            continue
+        offers.append({
+            "player_id": p["id"],
+            "player_name": p["name"],
+            "amount": offer["amount"],
+            "id_bid": offer.get("id_bid", ""),
+            "player_value": p.get("value", 0),
+            "purchase_price": p.get("purchase_price"),
+            "value_drop_pct": get_value_drop_pct(db, p["id"]),
+        })
+    return offers
+
+
 def execute_sales(api: MisterAPI, engine: StrategyEngine,
-                  squad_players: list, finances: dict) -> None:
+                  squad_players: list, finances: dict,
+                  market_offers: list | None = None) -> None:
     print("\n--- SALES & MANAGEMENT DECISIONS ---")
-    decisions = engine.analyze_squad_and_offers(squad_players, finances)
+    decisions = engine.analyze_squad_and_offers(squad_players, finances, market_offers)
     if not decisions:
         print("> No recommended players to sell today.")
         return
@@ -49,9 +69,9 @@ def execute_sales(api: MisterAPI, engine: StrategyEngine,
 
 def execute_purchases(api: MisterAPI, engine: StrategyEngine,
                       checker: LLMNewsChecker, market_players: list,
-                      finances: dict) -> None:
+                      finances: dict, squad_players: list) -> None:
     print("\n--- PURCHASE/BID DECISIONS ---")
-    decisions = engine.analyze_market(market_players, finances)
+    decisions = engine.analyze_market(market_players, finances, squad_players)
     if not decisions:
         print("> No players on the market meet the criteria today.")
         return
@@ -179,6 +199,10 @@ def main():
         print("Critical error: could not fetch data from the API.")
         return
 
+    # Authoritative per-player data: club membership, purchase price,
+    # Mister's own injury report and received offers.
+    api.get_squad_details(squad_players)
+
     print("[3/5] Synchronizing players with the database...")
     for player in market_players + squad_players:
         upsert_player(db, player)
@@ -188,8 +212,9 @@ def main():
     checker = LLMNewsChecker()
 
     review_squad_health(checker, squad_players)
-    execute_sales(api, engine, squad_players, finances)
-    execute_purchases(api, engine, checker, market_players, finances)
+    market_offers = collect_received_offers(db, squad_players)
+    execute_sales(api, engine, squad_players, finances, market_offers)
+    execute_purchases(api, engine, checker, market_players, finances, squad_players)
     execute_steals(api, engine, checker, squad_players, finances)
 
     print("[5/5] Setting the best lineup...")

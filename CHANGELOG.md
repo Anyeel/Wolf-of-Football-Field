@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.1] - 2026-06-11
+### Added
+- **Received-offer logic** (`StrategyEngine.decide_offer` + `MisterAPI.get_squad_details`): offers on our players are accepted when they beat the purchase price or the market value, accepted anyway when the player's value is tanking (>10% off its 7-day peak, from the local history DB), and kept otherwise. Starters from the optimal 11 are only sold when tanking. Surfaced in the wizard's sales step with an "Oferta recibida" badge.
+- **Authoritative squad enrichment**: `player-community-info` JSON now feeds club membership, purchase price (`transfer.price`), current listing and Mister's own injury report into the engine.
+
+### Fixed
+- **No-club detection**: the HTML heuristic never fired (every player row carries a `team-logo` img). Club membership now comes from the JSON API, where `team` is null for players who left the league. They are liquidated at market value — the minimum Mister allows when listing.
+- **Injury checker hallucinations**: removed the stale monthly search fallback (it surfaced weeks-old, already-recovered injuries), headlines now include titles + today's date, and the prompt is explicitly conservative: a player is only flagged when a snippet explicitly reports a current injury/rotation; recoveries, other players, generic "lesión" mentions and doubts default to SAFE.
+- **Signing rules**: suggestions no longer include players you already own, respect position depth (configurable targets; stars and min-price flips bypass the filter), never exceed the max-bid capacity, and are capped to the 10 best — bids start from the listed price, since Mister's market is a blind auction won by the highest bid.
+
 ## [1.3.0] - 2026-06-11
 ### Added
 - **LLM Provider Abstraction** (`llm_client.py`): a single client routes requests to local Ollama first and falls back to **Google Gemini** (plain REST, no SDK) automatically — including streaming. The fallback that was previously only advertised now actually works.

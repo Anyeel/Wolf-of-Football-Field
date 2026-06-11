@@ -50,6 +50,32 @@ def get_db():
     finally:
         db.close()
 
+def get_value_drop_pct(db, player_id: int, days: int = 7) -> float:
+    """How far a player's value has fallen from its recent peak (0.0 - 1.0).
+
+    Used by the offer logic: a player tanking hard should be sold even if
+    the offer doesn't beat his purchase price or market value.
+    """
+    since = datetime.date.today() - datetime.timedelta(days=days)
+    rows = (
+        db.query(PlayerHistory.value)
+        .filter(
+            PlayerHistory.player_id == player_id,
+            PlayerHistory.date >= since,
+            PlayerHistory.value > 0,
+        )
+        .order_by(PlayerHistory.date.asc())
+        .all()
+    )
+    values = [row[0] for row in rows]
+    if len(values) < 2:
+        return 0.0
+
+    peak = max(values)
+    current = values[-1]
+    return (peak - current) / peak if peak > 0 else 0.0
+
+
 def upsert_player(db, player_data):
     """
     Inserts a new player or updates an existing one.

@@ -29,6 +29,16 @@ class StrategyEngine:
     MAX_CLAUSE_PREMIUM = 1.5          # Never pay a clause above 150% of market value
     MAX_CLAUSE_BALANCE_SHARE = 0.7    # Never spend more than 70% of balance on one clause
 
+    # Received-offer rules
+    VALUE_DROP_SELL_THRESHOLD = 0.10  # Tanking >10% from recent peak: cut losses
+
+    # Squad building: comfortable depth per position. Mister's hard squad cap
+    # depends on each league's config, so suggestions are driven by need, not
+    # by an invented global limit. Top players and min-price flips are still
+    # suggested even when the position is covered.
+    POSITION_TARGETS = {'GK': 2, 'DF': 7, 'MF': 7, 'FW': 5}
+    MAX_MARKET_SUGGESTIONS = 10
+
     # Recent-form weights per streak label (last matches)
     STREAK_WEIGHTS = {
         'outstanding': 15,
@@ -87,12 +97,41 @@ class StrategyEngine:
                       f"balance impact.")
 
     # ------------------------------------------------------------------
+    # Received offers (deterministic — no LLM involved)
+    # ------------------------------------------------------------------
+
+    def decide_offer(self, offer_amount: int, market_value: int,
+                     purchase_price: int | None = None,
+                     value_drop_pct: float = 0.0) -> tuple[bool, str]:
+        """Accept or keep a received offer for one of our players.
+
+        Rules:
+          1. Accept if the offer is at or above current market value.
+          2. Accept if the offer covers what we paid for him (profit).
+          3. Accept anyway if his value is tanking hard (cut losses).
+          4. Otherwise keep him.
+        """
+        if offer_amount >= market_value > 0:
+            return True, "Offer at or above market value."
+
+        if purchase_price and offer_amount >= purchase_price:
+            return True, f"Offer covers the purchase price ({purchase_price}€)."
+
+        if value_drop_pct >= self.VALUE_DROP_SELL_THRESHOLD:
+            return True, (f"Value down {value_drop_pct:.0%} from its recent peak"
+                          f" — selling before he drops further.")
+
+        return False, "Offer below value and the player is holding: keep him."
+
+    # ------------------------------------------------------------------
     # Market analysis (CLI bot)
     # ------------------------------------------------------------------
 
-    def analyze_market(self, market_players: list, finances: dict) -> list:
+    def analyze_market(self, market_players: list, finances: dict,
+                       squad_players: list | None = None) -> list:
         """Scans the free market for core signings, min-price steals and flips."""
         max_bid_capacity = finances.get('max_bid', 0)
+        owned_ids = {p['id'] for p in squad_players or []}
 
         decisions = []
         spent_in_bids = 0
@@ -103,6 +142,8 @@ class StrategyEngine:
         )
 
         for player in market_players:
+            if player['id'] in owned_ids:
+                continue
             if player.get('status') in ('injured', 'doubt'):
                 continue
 
@@ -229,18 +270,28 @@ class StrategyEngine:
                 })
                 recovered += player.get('value', 0)
 
-        # Incoming offers: accept anything at or above market value.
+        # Incoming offers: rule-based accept/keep (see decide_offer).
+        # Offers on optimal-lineup starters are only accepted when the player
+        # is tanking: profit is no reason to break the matchday 11.
         for offer in market_offers or []:
-            if offer.get('from_rival_higher_ranked', False):
-                continue  # Don't strengthen direct rivals above us
-            if offer['amount'] >= offer['player_value']:
+            is_tanking = offer.get('value_drop_pct', 0.0) >= self.VALUE_DROP_SELL_THRESHOLD
+            if offer['player_id'] in protected_ids and not is_tanking:
+                continue
+
+            accept, reason = self.decide_offer(
+                offer['amount'],
+                offer.get('player_value', 0),
+                offer.get('purchase_price'),
+                offer.get('value_drop_pct', 0.0),
+            )
+            if accept:
                 decisions.append({
                     'action': 'ACCEPT_OFFER',
                     'id_bid': offer.get('id_bid', ''),
                     'player_id': offer['player_id'],
                     'player_name': offer['player_name'],
                     'amount': offer['amount'],
-                    'reason': "Offer at or above market value (lower clause to minimum first).",
+                    'reason': f"{reason} (Lower clause to minimum first.)",
                 })
 
         return decisions
@@ -321,29 +372,73 @@ class StrategyEngine:
     # ------------------------------------------------------------------
 
     def get_market_suggestions(self, market_players: list,
-                               rival_players: list | None = None) -> list:
-        """Ranked list of signing targets: free agents plus possible steals."""
+                               rival_players: list | None = None,
+                               squad_players: list | None = None,
+                               finances: dict | None = None) -> list:
+        """Ranked list of signing targets, aware of Mister's actual rules:
+
+        - Never suggests players we already own.
+        - Market bids must be at least the listed price (it's a blind auction),
+          so the suggested bid starts from the listed price, not below it.
+        - Positions already at comfortable depth are skipped, unless the player
+          is a clear star or a min-price flip for resale profit.
+        - Nothing above the current max-bid capacity is suggested.
+        - Capped to the best MAX_MARKET_SUGGESTIONS by score.
+        """
+        squad_players = squad_players or []
+        owned_ids = {p['id'] for p in squad_players}
+        max_bid = finances.get('max_bid') if finances else None
+
+        # Count usable depth per position (players without a club don't count).
+        depth = {pos: 0 for pos in self.POSITION_TARGETS}
+        for p in squad_players:
+            pos = p.get('position')
+            if pos in depth and p.get('has_team', True):
+                depth[pos] += 1
+
+        def position_needed(pos: str) -> bool:
+            return depth.get(pos, 0) < self.POSITION_TARGETS.get(pos, 0)
+
         suggestions = []
 
         for p in market_players:
+            if p['id'] in owned_ids:
+                continue
             if p.get('status') in ('injured', 'doubt'):
                 continue
-            value = p.get('value', 0)
-            if value == 0:
+            listed_price = p.get('value', 0)
+            if listed_price == 0:
                 continue
 
-            bid = int(value * 1.05) if value > self.MIN_PRICE_THRESHOLD else self.MIN_PRICE_BID
+            score = self._calculate_attractiveness_score(p)
+            is_star = score >= self.MIN_ATTRACTIVE_SCORE
+            is_flip = listed_price <= self.MIN_PRICE_THRESHOLD
+
+            # Skip depth signings for covered positions; stars and flips pass.
+            if not position_needed(p.get('position', 'U')) and not is_star and not is_flip:
+                continue
+
+            # Blind auction: bid slightly above the listed price to win it.
+            bid = self.MIN_PRICE_BID if is_flip else int(listed_price * 1.05)
+            if max_bid is not None and bid > max_bid:
+                continue  # Out of budget
+
+            reason = 'Agente libre'
+            if position_needed(p.get('position', 'U')):
+                reason += f" · refuerzo necesario ({p.get('position')})"
             suggestions.append({
                 'type': 'free_agent',
                 'player_id': p['id'],
                 'player_name': p['name'],
-                'value': value,
-                'score': self._calculate_attractiveness_score(p),
+                'value': listed_price,
+                'score': score,
                 'suggested_bid': bid,
-                'reason': 'Agente libre',
+                'reason': reason,
             })
 
         for p in rival_players or []:
+            if p['id'] in owned_ids:
+                continue
             if p.get('status') in ('injured', 'doubt'):
                 continue
             value = p.get('value', 0)
@@ -355,6 +450,8 @@ class StrategyEngine:
             score = self._calculate_attractiveness_score(p)
             if score >= self.MIN_ATTRACTIVE_SCORE + 10:
                 estimated_clause = int(value * self.MAX_CLAUSE_PREMIUM)
+                if max_bid is not None and estimated_clause > max_bid:
+                    continue
                 suggestions.append({
                     'type': 'steal',
                     'player_id': p['id'],
@@ -367,7 +464,8 @@ class StrategyEngine:
                     'reason': 'Clausulazo a rival',
                 })
 
-        return sorted(suggestions, key=lambda s: s['score'], reverse=True)
+        suggestions.sort(key=lambda s: s['score'], reverse=True)
+        return suggestions[:self.MAX_MARKET_SUGGESTIONS]
 
     def get_protection_suggestions(self, squad_players: list) -> list:
         """Stars worth shielding: list them at 2x value so rivals can't steal them."""

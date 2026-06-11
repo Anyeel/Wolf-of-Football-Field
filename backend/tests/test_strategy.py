@@ -95,3 +95,73 @@ def test_clausulazo_rejects_balance_drain(engine):
 def test_clausulazo_rejects_missing_data(engine):
     ok, _ = engine.evaluate_clausulazo(market_value=0, clause_value=0, balance=1_000_000)
     assert not ok
+
+
+def test_market_suggestions_respect_squad_rules(engine):
+    # Fully covered squad: 2 GK, 7 DF, 7 MF, 5 FW (all with a real club).
+    squad = []
+    for pos, count in (('GK', 2), ('DF', 7), ('MF', 7), ('FW', 5)):
+        for i in range(count):
+            squad.append({'id': len(squad) + 100, 'position': pos,
+                          'average_points': 3, 'streak': [], 'has_team': True})
+
+    market = [
+        # Already owned: must never be suggested again.
+        {'id': 100, 'name': 'Owned GK', 'position': 'GK', 'value': 500_000,
+         'average_points': 3, 'streak': []},
+        # Average player in a covered position: skipped.
+        {'id': 1, 'name': 'Avg GK', 'position': 'GK', 'value': 500_000,
+         'average_points': 3, 'streak': []},
+        # Star player: suggested even though the position is covered.
+        {'id': 2, 'name': 'Star GK', 'position': 'GK', 'value': 500_000,
+         'average_points': 9, 'streak': []},
+        # Min-price flip: suggested regardless of position depth.
+        {'id': 3, 'name': 'Cheap MF', 'position': 'MF', 'value': 150_000,
+         'average_points': 1, 'streak': []},
+        # Star, but the bid exceeds the max-bid capacity: skipped.
+        {'id': 4, 'name': 'Too Expensive', 'position': 'FW', 'value': 50_000_000,
+         'average_points': 10, 'streak': []},
+    ]
+    finances = {'balance': 10_000_000, 'max_bid': 10_000_000}
+
+    suggestions = engine.get_market_suggestions(
+        market, squad_players=squad, finances=finances
+    )
+    ids = {s['player_id'] for s in suggestions}
+
+    assert 100 not in ids   # Owned
+    assert 1 not in ids     # Covered position, not a star
+    assert 2 in ids         # Star passes the depth filter
+    assert 3 in ids         # Min-price flip passes
+    assert 4 not in ids     # Out of budget
+
+
+def test_offer_accepted_above_market_value(engine):
+    ok, _ = engine.decide_offer(offer_amount=1_100_000, market_value=1_000_000)
+    assert ok
+
+
+def test_offer_accepted_above_purchase_price(engine):
+    ok, reason = engine.decide_offer(
+        offer_amount=900_000, market_value=1_000_000, purchase_price=800_000
+    )
+    assert ok
+    assert 'purchase' in reason
+
+
+def test_offer_accepted_when_value_tanking(engine):
+    # Below value and below purchase price, but tanking -15%: cut losses.
+    ok, reason = engine.decide_offer(
+        offer_amount=700_000, market_value=1_000_000,
+        purchase_price=900_000, value_drop_pct=0.15,
+    )
+    assert ok
+    assert '15%' in reason
+
+
+def test_offer_kept_when_low_and_value_stable(engine):
+    ok, _ = engine.decide_offer(
+        offer_amount=700_000, market_value=1_000_000,
+        purchase_price=900_000, value_drop_pct=0.02,
+    )
+    assert not ok
