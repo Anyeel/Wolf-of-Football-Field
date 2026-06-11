@@ -5,15 +5,29 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.3.1] - 2026-06-11
+## [1.4.0] - 2026-06-11
+
+All fixes in this release were diagnosed against **real Mister API responses**
+(read-only inspection of the live HTML and `player-community-info` JSON),
+not assumptions about them.
+
 ### Added
-- **Received-offer logic** (`StrategyEngine.decide_offer` + `MisterAPI.get_squad_details`): offers on our players are accepted when they beat the purchase price or the market value, accepted anyway when the player's value is tanking (>10% off its 7-day peak, from the local history DB), and kept otherwise. Starters from the optimal 11 are only sold when tanking. Surfaced in the wizard's sales step with an "Oferta recibida" badge.
-- **Authoritative squad enrichment**: `player-community-info` JSON now feeds club membership, purchase price (`transfer.price`), current listing and Mister's own injury report into the engine.
+- **Received-offer logic** (`StrategyEngine.decide_offer`): offers on our players are accepted when they beat the purchase price or the market value, accepted anyway when the player's value is tanking (cut losses), and kept otherwise. Starters from the optimal 11 are only sold when tanking — profit doesn't justify breaking the matchday 11.
+- **Authoritative squad enrichment** (`MisterAPI.get_squad_details`): the `player-community-info` JSON now feeds the engine per player: club membership (`team`), real purchase price (`transfer.price`), current listing (`market.id/price`), received offers (`bid`) and **Mister's own injury report** — which beats any news scraping and makes the LLM a second opinion instead of the primary source.
+- **Value-trend helper** (`db_orm.get_value_drop_pct`): drop from the 7-day peak computed from the local price-history DB; feeds the >10% "tanking" threshold (`VALUE_DROP_SELL_THRESHOLD`).
+- **Squad-aware market suggestions**: position-depth targets (`POSITION_TARGETS`, configurable; stars and min-price flips bypass the filter), per-bid budget cap against `max_bid`, and a top-10 limit (`MAX_MARKET_SUGGESTIONS`). No invented global squad cap — Mister's limit depends on each league's config.
+- **CLI parity** (`main.py`): the headless bot also enriches the squad from JSON, collects received offers (`collect_received_offers`) and passes the squad to the market analysis.
+- **Offer UI**: accepted offers show in the wizard's sales step with an "Oferta recibida" badge and the engine's reasoning (`SaleItem.reason`).
+- **6 new tests** (22 backend total): offer accept/keep rules, tanking threshold, squad-aware suggestion filters and JSON squad enrichment.
+
+### Changed
+- `GET /api/wizard/init` now upserts market and squad values into the history DB on every run, so trend analysis always has data to work with.
+- Players without a real-life club are liquidated at market value — the listing minimum Mister enforces — instead of a 1.5x deterrent price nobody would pay.
 
 ### Fixed
-- **No-club detection**: the HTML heuristic never fired (every player row carries a `team-logo` img). Club membership now comes from the JSON API, where `team` is null for players who left the league. They are liquidated at market value — the minimum Mister allows when listing.
-- **Injury checker hallucinations**: removed the stale monthly search fallback (it surfaced weeks-old, already-recovered injuries), headlines now include titles + today's date, and the prompt is explicitly conservative: a player is only flagged when a snippet explicitly reports a current injury/rotation; recoveries, other players, generic "lesión" mentions and doubts default to SAFE.
-- **Signing rules**: suggestions no longer include players you already own, respect position depth (configurable targets; stars and min-price flips bypass the filter), never exceed the max-bid capacity, and are capped to the 10 best — bids start from the listed price, since Mister's market is a blind auction won by the highest bid.
+- **No-club detection never fired**: every player row in Mister's HTML carries a `team-logo` img, so the HTML heuristic always reported "has team". Club membership now comes from the JSON API, where `team` is null for players who left the league.
+- **Injury checker hallucinations**: removed the stale monthly search fallback (it surfaced weeks-old, already-recovered injuries), headlines now include titles plus today's date, and the prompt is explicitly conservative — a player is only flagged when a snippet explicitly reports a current injury/rotation for *him*; recoveries, other players, generic "lesión" mentions and uncertainty all default to SAFE.
+- **Signing rules**: suggestions could include players you already own and bids could undercut the listed price; bids now start from the listed price, since Mister's market is a blind auction won by the highest bid.
 
 ## [1.3.0] - 2026-06-11
 ### Added
